@@ -26,6 +26,18 @@ import sys
 from pathlib import Path
 
 PRACTICE_VIDEO = "video_1"
+DEFAULT_EVAL_CONFIG = {"benchmark": "LAB", "split": "train"}
+
+# TrackEval chạy ở tiến trình con, nên alias NumPy phải được vá ngay trong tiến
+# trình đó (vá ở tiến trình cha không có tác dụng với NumPy >= 1.24).
+_TRACKEVAL_BOOTSTRAP = (
+    "import runpy, sys, numpy as np\n"
+    "for _ten, _kieu in (('float', float), ('int', int), ('bool', bool)):\n"
+    "    if not hasattr(np, _ten):\n"
+    "        setattr(np, _ten, _kieu)\n"
+    "sys.argv = sys.argv[1:]\n"
+    "runpy.run_path(sys.argv[0], run_name='__main__')\n"
+)
 
 
 def _patch_numpy_aliases() -> None:
@@ -41,21 +53,22 @@ def _patch_numpy_aliases() -> None:
 def _load_eval_config(lab_data_root: Path) -> dict:
     """Đọc cấu hình chấm đi kèm nhãn video luyện.
 
+    Nếu gói dữ liệu không kèm ``video_1/eval_config.json`` thì dùng cấu hình
+    mặc định ``DEFAULT_EVAL_CONFIG``. Tên benchmark chỉ là nhãn thư mục trong
+    cây TrackEval, không ảnh hưởng tới điểm số.
+
     Args:
         lab_data_root: Thư mục lab_data giảng viên phát.
 
     Returns:
         Dict có khóa ``benchmark`` và có thể có ``split``.
-
-    Raises:
-        FileNotFoundError: Khi thiếu ``video_1/eval_config.json``.
     """
     config_path = lab_data_root / PRACTICE_VIDEO / "eval_config.json"
     if not config_path.exists():
-        raise FileNotFoundError(
-            f"Không thấy {config_path}. Dùng đúng gói lab_data giảng viên phát "
-            "(file này đi kèm nhãn của video luyện)."
+        print(
+            f"Không thấy {config_path}; dùng cấu hình mặc định {DEFAULT_EVAL_CONFIG}."
         )
+        return dict(DEFAULT_EVAL_CONFIG)
     return json.loads(config_path.read_text())
 
 
@@ -105,6 +118,8 @@ def run_trackeval(trackeval_root: Path, run_name: str, benchmark: str, split: st
     """
     cmd = [
         sys.executable,
+        "-c",
+        _TRACKEVAL_BOOTSTRAP,
         str(trackeval_root / "scripts" / "run_mot_challenge.py"),
         "--GT_FOLDER", str(trackeval_root / "data" / "gt" / "mot_challenge"),
         "--TRACKERS_FOLDER", str(trackeval_root / "data" / "trackers" / "mot_challenge"),
@@ -115,7 +130,7 @@ def run_trackeval(trackeval_root: Path, run_name: str, benchmark: str, split: st
         "--METRICS", "HOTA", "CLEAR", "Identity",
         "--USE_PARALLEL", "False",
     ]
-    print("Đang chấm video luyện:\n  " + " ".join(cmd) + "\n")
+    print("Đang chấm video luyện:\n  " + " ".join(cmd[:1] + cmd[3:]) + "\n")
     subprocess.run(cmd, check=True)
 
 
